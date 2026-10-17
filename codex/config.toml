@@ -1,0 +1,9 @@
+# Team default Codex settings. Copied to ~/.codex/config.toml only if you
+# don't already have one. Projects can override in their own .codex/config.toml
+# (project overrides load only once you've marked the project as trusted).
+#
+# Full reference: https://developers.openai.com/codex/config-reference
+
+# Leave `model` unset to use Codex's current default, or pin one here.
+# model = "gpt-5.4"
+model_reasoning_effort = "high"
