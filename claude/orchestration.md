@@ -3,10 +3,11 @@
 <!--
 Claude-only. Codex never sees this file. It holds two kinds of rules:
 1. Interactive session behavior (project setup, planning) that would stall
-   a background Codex agent if it were in the shared AGENTS.md.
-2. Delegation rules, because Claude usage is capped per developer and Codex
-   usage is not. Written for the lowest team budget (~$200/month) so the same
-   workflow works for everyone.
+   a background agent if it were in the shared AGENTS.md.
+2. Delegation rules. Token-heavy work goes to a "worker". WHICH worker (Codex
+   or a Claude subagent) is set per developer by the delegation file imported
+   next to this one: claude/delegation-codex.md or claude/delegation-claude.md.
+   The install script picks it; re-run it with a different mode to switch.
 -->
 
 ## At the start of a session: check for a project AGENTS.md
@@ -37,32 +38,29 @@ Don't write code for new features or new projects until there's an agreed plan. 
 
 If unsure, ask the developer which fits, or run `/ask-matt`. Small edits and quick fixes don't need the full flow.
 
-## What you do yourself
+## Your job: think, plan, delegate, verify
 
+Claude usage is capped per developer. Token-heavy work goes to a **worker**: a fresh-context agent defined by the delegation file loaded alongside this one (a Codex agent or a Claude subagent). Even when the worker is Claude, **don't do heavy work in this main session**. The main session has to stay small to stay sharp, and each task deserves a fresh context.
+
+**You do yourself:**
 - Planning and alignment: `/wayfinder`, `/grill-me`, `/grill-with-docs`, `/improve-codebase-architecture`
 - Writing specs and tickets (`/to-spec`, `/to-tickets`) and editing docs: `AGENTS.md`, `GLOSSARY.md`, ADRs, issue text, MR descriptions
 - Writing the delegation brief for each task, then checking the result
 - Trivial edits: a single file, roughly 20 lines or fewer, where writing a brief would cost more than doing it
 
-## What you delegate to Codex
-
-Use the `codex:codex-rescue` subagent (equivalent to `/codex:rescue`) for:
-
+**A worker does:**
 - Implementing tickets or any multi-file change
 - Writing and fixing tests, including TDD loops
 - Investigating and fixing bugs
 - Broad codebase exploration ("find everywhere that...", "how does X work across the repo")
 - Research and prototyping steps that `/wayfinder` calls for
+- Code review (the delegation file says which command)
 
-For review, use `/codex:review --base dev` for standard review and `/codex:adversarial-review --base dev` for risky changes (auth, data migrations, anything hard to roll back). If you can't run these yourself, ask the developer to.
-
-## Overriding skills that spawn subagents
-
-Some skills (`implement`, `implement-spec`, `code-review`, `wayfinder`, and others) tell you to spawn implementer, reviewer, or research subagents. **Always use `codex:codex-rescue` for those subagents, never a Claude subagent.** Keep following the skill's process otherwise.
+**Per-task override:** the developer can pick a different worker for any single task ("use Codex for this one", "use a Claude subagent for this", "just do it yourself"). Follow it for that task, then go back to the default.
 
 ## Writing a delegation brief
 
-Codex starts without this conversation. Give it everything it needs in one message:
+The worker starts without this conversation. Give it everything it needs in one message:
 
 1. **Ticket:** the GitLab issue number, and the acceptance criteria copied in
 2. **Where:** the projects, layers, or files likely involved, if known (don't read them yourself just to list them)
@@ -70,22 +68,20 @@ Codex starts without this conversation. Give it everything it needs in one messa
 4. **Done means:** the exact build, format, and test commands from the project's `AGENTS.md` that must pass
 5. **Limits:** work on the current `feature/`/`bugfix/` branch, don't push, don't touch unrelated files
 
-Run long tasks with `--background` and check in with `/codex:status` and `/codex:result`.
+## Verifying a worker's result cheaply
 
-## Verifying Codex's work cheaply
-
-- Read `git diff --stat` and the Codex summary, not the full diff
+- Read `git diff --stat` and the worker's summary, not the full diff
 - Run the project's build and test commands yourself; the output is the evidence
-- Send the diff to `/codex:review` instead of reviewing it line by line
+- Send the diff to a review worker instead of reviewing it line by line
 - Only open specific files when the summary, stats, or test output looks wrong
 
-## When Codex fails
+## When a worker fails
 
-If Codex fails the same task twice, stop and tell the developer what happened. Suggest either a narrower brief or that you take over. Don't take over on your own: it spends the developer's limited budget.
+If a worker fails the same task twice, stop and tell the developer what happened. Suggest a narrower brief, a different worker, or that you take over. Don't take over on your own: it spends the developer's limited budget.
 
 ## Parallel work
 
-Run at most one Codex implementation job per checkout. For parallel jobs, use a separate git worktree for each.
+Run at most one implementation worker per checkout. For parallel work, use a separate git worktree for each.
 
 ## Staying in the smart zone
 
@@ -93,7 +89,7 @@ Agents do their best work early in a session (the smart zone). Quality drops gra
 
 - **One task per session.** Don't pile unrelated work into the current session; suggest a fresh one.
 - **Size tickets to fit one fresh session.** When running `/to-tickets`, split any ticket an agent couldn't plan, build, and test in a single session.
-- **Make every delegation brief self-contained.** Codex starts fresh, which is the point. It should never need this conversation to do its job.
-- **Keep your own context small.** Don't read whole files or large outputs to "get context" before delegating; Codex will explore. Prefer targeted searches over reading directories.
+- **Make every delegation brief self-contained.** Workers start fresh, which is the point. They should never need this conversation to do their job.
+- **Keep your own context small.** Don't read whole files or large outputs to "get context" before delegating; the worker will explore. Prefer targeted searches over reading directories.
 - **Hand off before the dumb zone, not after.** When a session is getting long (approaching ~125K tokens) or reaches a natural boundary, such as finishing planning or switching tickets, stop and suggest `/handoff` so a fresh session can continue. Don't push through.
 - **Planning too big for one session** is what `/wayfinder` is for: it records decisions in GitLab between sessions.

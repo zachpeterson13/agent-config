@@ -12,7 +12,8 @@ Updating your standards is now `git pull`.
 | File | Read by | Purpose |
 |---|---|---|
 | `AGENTS.md` | Claude and Codex | Team-wide standards: architecture, C#/.NET, logging, config, database, testing, security, GitLab branching |
-| `claude/orchestration.md` | Claude only | Session-start project checks, planning rules, and delegation: Claude plans, Codex implements and reviews |
+| `claude/orchestration.md` | Claude only | Session-start project checks, planning rules, and delegation: Claude plans and verifies, a worker implements and reviews |
+| `claude/delegation-codex.md` / `delegation-claude.md` | Claude only | Who the worker is. Each developer loads one (see below). |
 | `codex/config.toml` | Codex | Default model settings (seeded once, never overwritten) |
 | `project-template/` | | Files every project repo should have |
 | `scripts/` | | `install` and `init-project`, in PowerShell (Windows) and bash (WSL/macOS/Linux) |
@@ -23,11 +24,19 @@ developer questions, getting a plan approved), which only make sense for
 Claude. Codex agents run unattended in the background and would stall
 waiting for answers.
 
-**Why Codex does the heavy lifting:** Claude usage is capped per developer;
-Codex isn't. `orchestration.md` keeps Claude on high-judgment work (planning,
-specs, tickets, verifying) and sends implementation, tests, debugging, and
-review to Codex. It's written for the lowest team budget so the workflow is
-the same for everyone.
+**Who does the heavy lifting:** Claude usage is capped per developer.
+`orchestration.md` keeps Claude on high-judgment work (planning, specs,
+tickets, verifying) and sends implementation, tests, debugging, and review to
+a **worker** that starts with a fresh context. Each developer chooses the worker:
+
+| Mode | Worker | Good for |
+|---|---|---|
+| `codex` (default if Codex is installed) | Codex agents, effectively unlimited usage | Stretching a capped Claude budget furthest |
+| `claude` | Claude subagents, on a smaller model where possible | Developers who don't want to use Codex, or have the Claude budget for it |
+
+Either way the process and its outputs are identical: the same tickets,
+commits, reviews, and MRs. Teammates can pick up each other's work without
+caring which mode built it.
 
 ## Setup (once per developer)
 
@@ -45,16 +54,32 @@ git clone <this repo's GitLab URL> ~/agent-config
 ~/agent-config/scripts/install.sh
 ```
 
+To choose a mode on first install, add `-Delegation codex` or
+`-Delegation claude` (`--delegation codex|claude` in bash). Leave it off and
+the script picks `codex` if Codex is installed, otherwise `claude`.
+
 The install script:
 
-1. Checks for `git`, `node`, `claude`, `codex`, and `glab`, and tells you how to install anything missing
-2. Writes a managed block at the top of `~/.claude/CLAUDE.md` that imports `AGENTS.md` and `orchestration.md` from this repo. **Your old global `CLAUDE.md` is backed up** to `CLAUDE.md.bak-<timestamp>`; its content now lives in `AGENTS.md`.
-3. Links `~/.codex/AGENTS.md` to this repo's `AGENTS.md`
-4. Creates `~/.codex/config.toml` if you don't have one
-5. Installs Matt Pocock's skills in both agents, plus the Codex plugin for Claude Code (skip with `-NoPlugins` / `--no-plugins`)
+1. Checks for `git`, `node`, `claude`, and `glab` (plus `codex`, which is optional), and tells you how to install anything missing
+2. Sets your delegation mode
+3. Writes a managed block at the top of `~/.claude/CLAUDE.md` that imports `AGENTS.md`, `orchestration.md`, and your delegation file from this repo. **Your old global `CLAUDE.md` is backed up** to `CLAUDE.md.bak-<timestamp>`; its content now lives in `AGENTS.md`.
+4. Links `~/.codex/AGENTS.md` to this repo's `AGENTS.md` and creates `~/.codex/config.toml` if you don't have one (harmless if you never use Codex)
+5. Installs Matt Pocock's skills in Claude Code, and if Codex is installed, in Codex too, plus the Codex plugin for Claude Code (skip with `-NoPlugins` / `--no-plugins`)
 
-Then, in Claude Code, run `/codex:setup` to confirm Codex is logged in and
-`/memory` to confirm both agent-config files are loaded.
+Then, in Claude Code, run `/memory` to confirm the three agent-config files
+are loaded. In Codex mode, also run `/codex:setup` to confirm Codex is logged in.
+
+### Switching modes
+
+- **For good:** re-run the install script with the other mode, e.g.
+  `install.ps1 -Delegation claude -NoPlugins`. It applies to new Claude
+  sessions. Re-runs without the flag keep whatever you chose last.
+- **For one task:** just say so in the session: "use Codex for this one",
+  "use a Claude subagent for this", or run a `/codex:` command directly.
+  Claude goes back to your default afterward.
+
+Installing Codex doesn't commit you to Codex mode. With Codex installed, the
+Codex plugin is available in either mode, so per-task switching works.
 
 **Updates:** `git pull` here. Both agents pick up changes in their next session.
 
@@ -89,8 +114,9 @@ Then:
 You can also skip the script: open Claude Code in a project with no
 `AGENTS.md`, and it asks the new-project questions and generates the file.
 
-The project's `.claude/settings.json` lists the plugins, so a teammate who
-opens the repo in Claude Code is prompted to install anything missing.
+The project's `.claude/settings.json` enables Matt Pocock's skills, so a
+teammate who opens the repo in Claude Code is prompted to install them. The
+Codex plugin is left to each developer's install, since not everyone uses it.
 
 ## The workflow
 
@@ -99,7 +125,7 @@ opens the repo in Claude Code is prompted to install anything missing.
 around 125–150K tokens (the "dumb zone"). Instead of one long session that
 plans, codes, and reviews, the work is split so every session starts fresh:
 planning produces a spec and tickets in GitLab, each ticket fits in one fresh
-session, and every Codex task starts with a clean context. When a session gets
+session, and every worker task starts with a clean context. When a session gets
 long anyway, `/handoff` to a fresh one. See Matt's
 [smart zone](https://www.aihero.dev/ai-coding-dictionary/smart-zone) entry.
 
@@ -114,16 +140,16 @@ issues, not a local `TODO.md`, so the whole team can see them.
 
 **Step 2: build, review, ship.**
 
-| Step | Command | Runs on |
+| Step | Codex mode | Claude mode |
 |---|---|---|
-| Implement each ticket | `/codex:rescue --background implement #123 using the tdd skill` | Codex |
-| Review | `/codex:review --base dev` (+ `/codex:adversarial-review --base dev` for risky changes) | Codex |
-| Open the MR into `dev` | `glab mr create`, body in the `pr` skill's shape | Either |
-| Hand work to a teammate | `/handoff` | Claude |
-| Improve the setup | `/retro` | Claude |
+| Implement each ticket | `/implement #123` (Claude routes the work to Codex), or directly: `/codex:rescue --background implement #123 using the tdd skill` | `/implement #123` (runs in a Claude subagent) |
+| Final review of the branch | `/codex:review --base dev` (+ `/codex:adversarial-review --base dev` for risky changes) | `/code-review` against `dev` (+ ask for a design-challenge review for risky changes) |
+| Open the MR into `dev` | `glab mr create`, body in the `pr` skill's shape | same |
+| Hand work to a teammate | `/handoff` | same |
+| Improve the setup | `/retro` | same |
 
-Check background jobs with `/codex:status` and `/codex:result`. Use a separate
-git worktree for each parallel Codex job.
+In Codex mode, check background jobs with `/codex:status` and `/codex:result`.
+In either mode, use a separate git worktree for each parallel worker.
 
 ## Changing the standards
 
