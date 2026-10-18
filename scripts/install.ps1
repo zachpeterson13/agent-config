@@ -9,12 +9,23 @@
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
 
+.PARAMETER Delegation
+  Who does the token-heavy work (implementation, tests, debugging, review):
+    codex  - Codex agents (Claude plans and verifies)
+    claude - Claude subagents (no Codex needed)
+  If omitted, keeps your current choice; on a first install, picks codex if the
+  codex CLI is installed, otherwise claude. Re-run with a different value to switch.
+
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -NoPlugins
+
+.EXAMPLE
+  powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Delegation claude -NoPlugins
 #>
 [CmdletBinding()]
 param(
-    [switch]$NoPlugins
+    [switch]$NoPlugins,
+    [ValidateSet('codex', 'claude')][string]$Delegation
 )
 
 $ErrorActionPreference = 'Stop'
@@ -49,19 +60,39 @@ function Backup-Existing([string]$Path) {
 # ---------------------------------------------------------------------------
 Write-Step 'Checking tools'
 $missing = $false
-foreach ($tool in 'git', 'node', 'claude', 'codex', 'glab') {
+foreach ($tool in 'git', 'node', 'claude', 'glab') {
     if (Get-Command $tool -ErrorAction SilentlyContinue) { Write-Ok "$tool found" }
     else { Write-Warn "$tool not found"; $missing = $true }
 }
+$HasCodex = [bool](Get-Command codex -ErrorAction SilentlyContinue)
+if ($HasCodex) { Write-Ok 'codex found' }
+else { Write-Host '  --  codex not found (only needed for Codex delegation)' }
 if ($missing) {
     Write-Host @'
     Install what's missing, then re-run this script:
       git    https://git-scm.com/download/win
       node   https://nodejs.org (18.18 or later)
       claude https://docs.claude.com/en/docs/claude-code
-      codex  npm install -g @openai/codex   (then: codex login)
       glab   winget install GLab.GLab        (then: glab auth login)
 '@
+}
+
+# ---------------------------------------------------------------------------
+Write-Step 'Choosing delegation mode'
+$ClaudeMd = Join-Path $ClaudeDir 'CLAUDE.md'
+$source = 'chosen with -Delegation'
+if (-not $Delegation) {
+    $existing = ''
+    if (Test-Path -LiteralPath $ClaudeMd) { $existing = [System.IO.File]::ReadAllText($ClaudeMd) }
+    if ($existing.Contains('claude/delegation-claude.md'))    { $Delegation = 'claude'; $source = 'kept your current choice' }
+    elseif ($existing.Contains('claude/delegation-codex.md')) { $Delegation = 'codex';  $source = 'kept your current choice' }
+    elseif ($HasCodex) { $Delegation = 'codex';  $source = 'default: codex is installed' }
+    else               { $Delegation = 'claude'; $source = 'default: codex is not installed' }
+}
+Write-Ok "Heavy work goes to: $Delegation ($source)"
+if ($Delegation -eq 'codex' -and -not $HasCodex) {
+    Write-Warn 'Codex mode needs the codex CLI: npm install -g @openai/codex, then codex login.'
+    Write-Warn 'Until then Claude will ask before falling back to its own subagents.'
 }
 
 # ---------------------------------------------------------------------------
@@ -70,11 +101,11 @@ New-Item -ItemType Directory -Force -Path $ClaudeDir, $CodexDir | Out-Null
 
 # Claude: a managed block of imports at the top of ~/.claude/CLAUDE.md.
 # Claude reads the repo files fresh every session, so `git pull` is the whole update.
-$ClaudeMd = Join-Path $ClaudeDir 'CLAUDE.md'
 $Block = @(
     $BeginMarker
     "@$RepoFwd/AGENTS.md"
     "@$RepoFwd/claude/orchestration.md"
+    "@$RepoFwd/claude/delegation-$Delegation.md"
     $EndMarker
 ) -join "`n"
 $Fresh = "$Block`n`n<!-- Personal, non-team preferences can go below this line. -->`n"
@@ -172,25 +203,33 @@ function Invoke-Try([string]$Label, [string[]]$Command) {
 if (-not $NoPlugins) {
     Write-Step 'Installing plugins'
     if (Get-Command claude -ErrorAction SilentlyContinue) {
-        Invoke-Try 'Claude: Matt Pocock skills'      @('claude', 'plugin', 'install', 'mattpocock-skills@claude-plugins-official')
-        Invoke-Try 'Claude: Codex plugin marketplace' @('claude', 'plugin', 'marketplace', 'add', 'openai/codex-plugin-cc')
-        Invoke-Try 'Claude: Codex plugin'             @('claude', 'plugin', 'install', 'codex@openai-codex')
+        Invoke-Try 'Claude: Matt Pocock skills' @('claude', 'plugin', 'install', 'mattpocock-skills@claude-plugins-official')
+        # The Codex plugin is installed whenever Codex is, even in Claude mode,
+        # so switching modes (or using Codex for one task) needs no re-install.
+        if ($HasCodex) {
+            Invoke-Try 'Claude: Codex plugin marketplace' @('claude', 'plugin', 'marketplace', 'add', 'openai/codex-plugin-cc')
+            Invoke-Try 'Claude: Codex plugin'             @('claude', 'plugin', 'install', 'codex@openai-codex')
+        }
     } else {
         Write-Warn 'Skipping Claude plugins (claude not installed)'
     }
-    if (Get-Command codex -ErrorAction SilentlyContinue) {
+    if ($HasCodex) {
         Invoke-Try 'Codex: Matt Pocock marketplace' @('codex', 'plugin', 'marketplace', 'add', 'mattpocock/skills')
         Invoke-Try 'Codex: Matt Pocock skills'      @('codex', 'plugin', 'add', 'mattpocock-skills@mattpocock')
     } else {
-        Write-Warn 'Skipping Codex plugins (codex not installed)'
+        Write-Host '  --  Skipping Codex plugins (codex not installed)'
     }
 }
 
 # ---------------------------------------------------------------------------
 Write-Step 'Next steps'
+if ($Delegation -eq 'codex') {
+    Write-Host '  0. In Claude Code, run /codex:setup to confirm Codex is logged in.'
+}
 Write-Host @'
-  1. In Claude Code, run /codex:setup to confirm Codex is logged in,
-     and /memory to confirm both agent-config files are loaded.
+  1. In Claude Code, run /memory to confirm the three agent-config files are loaded.
+     Changes apply to new Claude sessions.
   2. In each project, run scripts\init-project.ps1 <path>, then /setup-matt-pocock-skills.
   3. To get standards updates later: git pull in this repo.
+  4. To switch who does the heavy work: re-run this script with -Delegation codex|claude -NoPlugins.
 '@

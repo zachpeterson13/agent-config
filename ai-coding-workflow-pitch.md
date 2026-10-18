@@ -222,6 +222,7 @@ flowchart LR
 - **One source of truth.** Our existing global `CLAUDE.md` standards (architecture, C#/.NET, logging, database, testing, security, branching) are already moved into a shared `AGENTS.md` that both agents read. No more copying from the shared drive: changing the standards is a merge request, and getting them is `git pull`.
 - **Existing projects come along.** A project with its own `CLAUDE.md` gets that content moved into `AGENTS.md` automatically, so Codex can read it too.
 - **Budget-safe by default.** The delegation rules are written for the smallest Claude budget on the team, so the workflow is identical for everyone.
+- **Codex is optional.** Each developer chooses who does the heavy lifting: Codex, or Claude subagents. They can switch any time or override it for a single task. The process and its outputs (tickets, commits, reviews, MRs) are the same either way, so handoffs don't depend on anyone's choice.
 - **Low-risk.** It's a handful of text files and two setup scripts (PowerShell for Windows). Nothing changes in CI, GitLab settings, our branching flow, or existing code.
 
 ### Proposed pilot
@@ -248,7 +249,8 @@ timeline
 | Risk | Mitigation |
 |---|---|
 | Claude doesn't always delegate to Codex | Start with a written rule; if it leaks, add small team-specific versions of the skills that force delegation |
-| Codex output quality is lower on some tasks | Every change still goes through tests and review; Claude can take over after two failed Codex attempts |
+| Codex output quality is lower on some tasks | Every change still goes through tests and review; Claude can take over after two failed Codex attempts, and a developer can send any single task to Claude instead |
+| Some developers don't want to use Codex | A per-developer "Claude mode" runs the same workflow with Claude subagents, on a smaller model where possible to stretch the budget. One setting, switchable any time. |
 | Process feels heavy for small changes | Small edits skip the full flow; the skills are designed to be used à la carte |
 | Upstream skills change under us | The plugin auto-updates; if a change hurts us, we pin a version or fork the specific skill |
 | Code leaves our environment | No change from today: we already have access to both Claude and OpenAI models, and the workflow uses the same tools |
