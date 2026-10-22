@@ -1,4 +1,0 @@
-# Project-level Codex overrides. Loads only after you trust this project in Codex.
-# Leave empty to use each developer's ~/.codex/config.toml.
-
-# model_reasoning_effort = "high"
